@@ -1,0 +1,3 @@
+@echo off
+echo Starting Grafana with Windows-specific Docker configuration...
+docker compose -f docker-compose.windows.yaml up --build
