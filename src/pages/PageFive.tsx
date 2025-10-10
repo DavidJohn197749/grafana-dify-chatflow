@@ -1,7 +1,7 @@
 import { css } from '@emotion/css';
 import { GrafanaTheme2 } from '@grafana/data';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, VerticalTab } from '@grafana/ui';
+import { Tab, TabsBar, useStyles2, VerticalTab } from '@grafana/ui';
 import React, { useState } from 'react';
 
 
@@ -82,12 +82,22 @@ function PageFive() {
 
     return (
         <PluginPage>
-            <div className={s.root}>
-                <TabSidebar tabs={tabItems} active={activeTab} onChange={setActiveTab} />
-                <div className={s.content}>
-                    {tabContentMap[activeTab] ?? <p>找不到內容</p>}
+            <TabsBar>
+                <Tab
+                    label="Page One"
+                    active={activeTab === 'tab1'}
+                    onChangeTab={() => setActiveTab('tab1')}
+                />
+                <Tab
+                    label="Page Two"
+                    active={activeTab === 'tab2'}
+                    onChangeTab={() => setActiveTab('tab2')}
+                />
+            </TabsBar>
+                <div>
+                    {activeTab === 'tab1' && <p>tab 1</p>}
+                    {activeTab === 'tab2' && <p>tab 2</p>}
                 </div>
-            </div>
         </PluginPage>
     );
 }
