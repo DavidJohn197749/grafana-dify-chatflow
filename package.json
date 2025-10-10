@@ -11,6 +11,7 @@
     "lint:fix": "npm run lint -- --fix && prettier --write --list-different .",
     "e2e": "playwright test",
     "server": "docker compose up --build",
+    "server-windows": "docker compose -f docker-compose.windows.yaml up --build",
     "sign": "npx --yes @grafana/sign-plugin@latest"
   },
   "author": "Cloud org",
