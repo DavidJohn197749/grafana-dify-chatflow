@@ -6,6 +6,7 @@ const PageOne = React.lazy(() => import('../../pages/PageOne'));
 const PageTwo = React.lazy(() => import('../../pages/PageTwo'));
 const PageThree = React.lazy(() => import('../../pages/PageThree'));
 const PageFour = React.lazy(() => import('../../pages/PageFour'));
+const PageFive = React.lazy(() => import('../../pages/PageFive'));
 
 function App(props: AppRootProps) {
   return (
@@ -15,7 +16,7 @@ function App(props: AppRootProps) {
 
       {/* Full-width page (this page will have no side navigation) */}
       <Route path={ROUTES.Four} element={<PageFour />} />
-
+      <Route path={ROUTES.Five} element={<PageFive />} />
       {/* Default page */}
       <Route path="*" element={<PageOne />} />
     </Routes>

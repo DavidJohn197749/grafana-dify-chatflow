@@ -7,4 +7,5 @@ export enum ROUTES {
   Two = 'two',
   Three = 'three',
   Four = 'four',
+  Five = 'five',
 }

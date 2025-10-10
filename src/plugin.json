@@ -50,6 +50,13 @@
     },
     {
       "type": "page",
+      "name": "Page Five",
+      "path": "/a/%PLUGIN_ID%/five",
+      "addToNav": true,
+      "defaultNav": false
+    },
+    {
+      "type": "page",
       "icon": "cog",
       "name": "Configuration",
       "path": "/plugins/%PLUGIN_ID%",

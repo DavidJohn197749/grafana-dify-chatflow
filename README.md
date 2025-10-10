@@ -1,4 +1,3 @@
-# Grafana app plugin template
 
 This template is a starting point for building an app plugin for Grafana.
 
