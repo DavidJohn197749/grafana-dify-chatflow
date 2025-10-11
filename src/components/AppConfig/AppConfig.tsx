@@ -46,25 +46,30 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     });
   };
 
-  const onSubmit = () => {
+  const onSubmit = (event: React.FormEvent) => {
+    event.preventDefault(); // Prevent default form submission
+    
     if (isSubmitDisabled) {
       return;
     }
 
-    updatePluginAndReload(plugin.meta.id, {
+    // Prepare the update data
+    const updateData: any = {
       enabled,
       pinned,
       jsonData: {
         apiUrl: state.apiUrl,
       },
-      // This cannot be queried later by the frontend.
-      // We don't want to override it in case it was set previously and left untouched now.
-      secureJsonData: state.isApiKeySet
-        ? undefined
-        : {
-            apiKey: state.apiKey,
-          },
-    });
+    };
+
+    // Only include secureJsonData if we have a new API key to set
+    if (state.apiKey && !state.isApiKeySet) {
+      updateData.secureJsonData = {
+        apiKey: state.apiKey,
+      };
+    }
+
+    updatePluginAndReload(plugin.meta.id, updateData);
   };
 
   return (

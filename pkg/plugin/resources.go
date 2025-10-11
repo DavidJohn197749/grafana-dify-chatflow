@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 
@@ -58,13 +59,13 @@ func (a *App) handleDifyWorkflow(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "apiUrl not found or not a string", http.StatusBadRequest)
 		return
 	}
-	
+
 	apiKey, ok := secureJsonData["apiKey"]
-	if !ok  {
+	if !ok {
 		http.Error(w, "API key is not set", http.StatusBadRequest)
 		return
-	}else {
-		
+	} else {
+
 		response := map[string]string{
 			"apiKey": apiKey,
 			"apiUrl": apiUrl,
@@ -78,9 +79,165 @@ func (a *App) handleDifyWorkflow(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// callDifyWorkflowAPI makes a request to the Dify workflow API
+func callDifyWorkflowAPI(apiUrl, apiKey string, inputs interface{}) (*http.Response, error) {
+	// Create the Dify API URL
+	difyURL := apiUrl + "/v1/workflows/run"
+
+	// Create the request payload with hardcoded values and provided inputs
+	payload := map[string]interface{}{
+		"inputs":        inputs,         // Use provided inputs
+		"response_mode": "streaming",    // Hardcoded
+		"user":          "grafana-user", // Hardcoded
+	}
+
+	// Marshal the payload to JSON
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		log.DefaultLogger.Error("Failed to marshal payload", "error", err)
+		return nil, err
+	}
+
+	// Debug log: Print request details
+	log.DefaultLogger.Debug("Making request to Dify API",
+		"url", difyURL,
+		"payload", string(payloadBytes),
+		"inputs", inputs)
+
+	// Create a new HTTP request to Dify API
+	req, err := http.NewRequest("POST", difyURL, bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		log.DefaultLogger.Error("Failed to create HTTP request", "error", err)
+		return nil, err
+	}
+
+	// Set headers
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Make the request to Dify API
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.DefaultLogger.Error("Failed to make request to Dify API", "error", err, "url", difyURL)
+		return nil, err
+	}
+
+	// Debug log: Print response details
+	log.DefaultLogger.Debug("Received response from Dify API",
+		"status_code", resp.StatusCode,
+		"status", resp.Status,
+		"url", difyURL)
+
+	return resp, nil
+}
+
+// handleDifyWorkflowProxy proxies requests to the Dify workflow API
+func (a *App) handleDifyWorkflowProxy(w http.ResponseWriter, req *http.Request) {
+	// Allow all HTTP methods
+
+	// Debug log: Print incoming request details
+	log.DefaultLogger.Debug("Received request to difyWorkflowProxy",
+		"method", req.Method,
+		"url", req.URL.String(),
+		"content_length", req.ContentLength,
+		"has_body", req.Body != nil)
+
+	// Get plugin configuration
+	pluginConfig := backend.PluginConfigFromContext(req.Context())
+	jsonData := pluginConfig.AppInstanceSettings.JSONData
+	secureJsonData := pluginConfig.AppInstanceSettings.DecryptedSecureJSONData
+
+	// Parse configuration
+	var config map[string]interface{}
+	if err := json.Unmarshal(jsonData, &config); err != nil {
+		http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+		return
+	}
+
+	// Get API URL from configuration
+	apiUrl, ok := config["apiUrl"].(string)
+	if !ok {
+		http.Error(w, "apiUrl not found or not a string", http.StatusBadRequest)
+		return
+	}
+
+	// Get API key from secure configuration
+	apiKey, ok := secureJsonData["apiKey"]
+	if !ok {
+		http.Error(w, "API key is not set", http.StatusBadRequest)
+		return
+	}
+
+	var inputs map[string]interface{}
+
+	// Handle request body - if no body or empty body, use empty object as default
+	if req.Body == nil || req.ContentLength == 0 {
+		// No body provided, use empty object as default
+		inputs = map[string]interface{}{}
+	} else {
+		// Check content length to prevent oversized requests (max 10MB)
+		if req.ContentLength > 10*1024*1024 {
+			http.Error(w, "Request body too large (max 10MB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		// Parse the incoming request body to extract inputs
+		var requestBody map[string]interface{}
+		if err := json.NewDecoder(req.Body).Decode(&requestBody); err != nil {
+			http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// If body is empty, use empty object as default
+		inputs = requestBody
+		if len(requestBody) == 0 {
+			inputs = map[string]interface{}{}
+		}
+	}
+
+	// Debug log: Print final inputs being sent to Dify
+	log.DefaultLogger.Debug("Sending inputs to Dify API",
+		"inputs", inputs,
+		"api_url", apiUrl)
+
+	// Use the abstracted function to call Dify API
+	resp, err := callDifyWorkflowAPI(apiUrl, apiKey, inputs)
+	if err != nil {
+		http.Error(w, "Failed to call Dify API: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+
+	// Set status code
+	w.WriteHeader(resp.StatusCode)
+
+	// Stream the response body
+	buf := make([]byte, 32*1024) // 32KB buffer
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				break
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+}
+
 // registerRoutes takes a *http.ServeMux and registers some HTTP handlers.
 func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ping", a.handlePing)
 	mux.HandleFunc("/echo", a.handleEcho)
 	mux.HandleFunc("/difyWorkflow", a.handleDifyWorkflow)
+	mux.HandleFunc("/difyWorkflowProxy", a.handleDifyWorkflowProxy)
 }

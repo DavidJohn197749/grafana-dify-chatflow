@@ -4,7 +4,7 @@ import { ROUTES } from '../src/constants';
 test.describe('navigating app', () => {
   test('page one should render successfully', async ({ gotoPage, page }) => {
     await gotoPage(`/${ROUTES.One}`);
-    await expect(page.getByText('This is page one.')).toBeVisible();
+    await expect(page.getByText('This is page one 2. ok')).toBeVisible();
   });
 
   test('page two should render successfully', async ({ gotoPage, page }) => {
@@ -20,7 +20,7 @@ test.describe('navigating app', () => {
   test('page three should render sucessfully', async ({ gotoPage, page }) => {
     // wait for page to successfully render
     await gotoPage(`/${ROUTES.One}`);
-    await expect(page.getByText('This is page one.')).toBeVisible();
+    await expect(page.getByText('This is page one 2. ok')).toBeVisible();
 
     // navigating to page four with full width layout without sidebar menu
     await page.getByText('Full-width page example').click();
