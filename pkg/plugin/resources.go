@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"io"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -234,10 +235,141 @@ func (a *App) handleDifyWorkflowProxy(w http.ResponseWriter, req *http.Request) 
 	}
 }
 
+func (a *App) handleDifyChatProxy(w http.ResponseWriter, req *http.Request) {
+	// Get plugin configuration
+	pluginConfig := backend.PluginConfigFromContext(req.Context())
+	jsonData := pluginConfig.AppInstanceSettings.JSONData
+	secureJsonData := pluginConfig.AppInstanceSettings.DecryptedSecureJSONData
+
+	// Parse configuration
+	var config map[string]interface{}
+	if err := json.Unmarshal(jsonData, &config); err != nil {
+		http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+		return
+	}
+
+	// Get API URL from configuration
+	apiUrl, ok := config["apiUrl"].(string)
+	if !ok {
+		http.Error(w, "apiUrl not found or not a string", http.StatusBadRequest)
+		return
+	}
+
+	// Get API key from secure configuration
+	apiKey, ok := secureJsonData["apiKey"]
+	if !ok {
+		http.Error(w, "API key is not set", http.StatusBadRequest)
+		return
+	}
+
+	// Handle request body - if no body or empty body, use empty object as default
+	if req.Body == nil || req.ContentLength == 0 {
+		// No body provided, use empty object as default
+		http.Error(w, "Request body cannot be empty", http.StatusBadRequest)
+		return
+	} else {
+		// Check content length to prevent oversized requests (max 10MB)
+		if req.ContentLength > 10*1024*1024 {
+			http.Error(w, "Request body too large (max 10MB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		// Parse the incoming request body to extract inputs
+		var requestBody map[string]interface{}
+		if err := json.NewDecoder(req.Body).Decode(&requestBody); err != nil {
+			http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		
+		if requestBody["query"] == nil {
+			http.Error(w, "query field is required in the request body", http.StatusBadRequest)
+			return
+		} else {
+			if requestBody["query"] == "" {
+				http.Error(w, "query field cannot be empty", http.StatusBadRequest)
+				return
+			}
+			chat_message_endpoint := apiUrl + "/chat-messages"
+
+			username := "grafana-user"
+			conversation_id := ""
+
+			payload := map[string]interface{}{
+				"inputs": map[string]interface{}{},
+				"query": requestBody["query"].(string),
+				"response_mode": "streaming",
+				"conversation_id": conversation_id,
+				"user": username,
+				"files": []map[string]interface{}{},
+			}
+
+			bodyBytes, _ := json.Marshal(payload)
+			req, err := http.NewRequest("POST", chat_message_endpoint, bytes.NewReader(bodyBytes))
+			if err != nil {
+				http.Error(w, "Failed to create Dify API Request: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+			req.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				http.Error(w, "Failed to call Dify API: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer resp.Body.Close()
+
+			w.WriteHeader(resp.StatusCode)
+			for k, vv := range resp.Header {
+				// Skip Content-Length to allow streaming
+				if k == "Content-Length" {
+					continue
+				}
+				for _, v := range vv {
+					w.Header().Add(k, v)
+				}
+			}
+
+			// Ensure content-type is text/event-stream
+			w.Header().Set("Content-Type", "text/event-stream")
+
+			// Flush interface to push data immediately
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+				return
+			}
+
+			// Stream response directly to client
+			buf := make([]byte, 4096)
+			for {
+				n, err := resp.Body.Read(buf)
+				if n > 0 {
+					_, writeErr := w.Write(buf[:n])
+					if writeErr != nil {
+						log.DefaultLogger.Debug("Error writing to client: %v", writeErr)
+						break
+					}
+					flusher.Flush()
+				}
+				if err != nil {
+					if err != io.EOF {
+						log.DefaultLogger.Debug("Error reading from backend: %v", err)
+					}
+					break
+				}
+			}
+		}
+	}
+}
+
 // registerRoutes takes a *http.ServeMux and registers some HTTP handlers.
 func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ping", a.handlePing)
 	mux.HandleFunc("/echo", a.handleEcho)
 	mux.HandleFunc("/difyWorkflow", a.handleDifyWorkflow)
 	mux.HandleFunc("/difyWorkflowProxy", a.handleDifyWorkflowProxy)
+	mux.HandleFunc("/difyChatProxy", a.handleDifyChatProxy)
 }
