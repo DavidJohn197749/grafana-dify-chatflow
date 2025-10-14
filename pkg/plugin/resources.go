@@ -365,6 +365,80 @@ func (a *App) handleDifyChatProxy(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// handleDifyGetConversations proxies GET requests to Dify's /v1/conversations endpoint
+func (a *App) handleDifyGetConversations(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get plugin configuration
+	pluginConfig := backend.PluginConfigFromContext(req.Context())
+	jsonData := pluginConfig.AppInstanceSettings.JSONData
+	secureJsonData := pluginConfig.AppInstanceSettings.DecryptedSecureJSONData
+
+	// Parse configuration
+	var config map[string]interface{}
+	if err := json.Unmarshal(jsonData, &config); err != nil {
+		http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+		return
+	}
+
+	apiUrl, ok := config["apiUrl"].(string)
+	if !ok {
+		http.Error(w, "apiUrl not found or not a string", http.StatusBadRequest)
+		return
+	}
+	apiKey, ok := secureJsonData["apiKey"]
+	if !ok {
+		http.Error(w, "API key is not set", http.StatusBadRequest)
+		return
+	}
+
+	// Build Dify API URL with query params, hardcoding user=grafana-user
+	difyURL := apiUrl + "/v1/conversations"
+	q := req.URL.Query()
+	q.Set("user", "grafana-user") // hard code user
+	// Only allow/forward specific query params
+	params := []string{"user", "last_id", "limit", "sort_by"}
+	outQ := make([]string, 0, len(params))
+	for _, p := range params {
+		if v := q.Get(p); v != "" {
+			outQ = append(outQ, p+"="+v)
+		}
+	}
+	if len(outQ) > 0 {
+		difyURL += "?" + q.Encode()
+	}
+
+	// Create request to Dify
+	proxyReq, err := http.NewRequest("GET", difyURL, nil)
+	if err != nil {
+		http.Error(w, "Failed to create request to Dify", http.StatusInternalServerError)
+		return
+	}
+	proxyReq.Header.Set("Authorization", "Bearer "+apiKey)
+	proxyReq.Header.Set("Accept", "application/json")
+
+	// Make the request
+	client := &http.Client{}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		http.Error(w, "Failed to call Dify API: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers and body
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			w.Header().Add(k, vv)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
 // registerRoutes takes a *http.ServeMux and registers some HTTP handlers.
 func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ping", a.handlePing)
@@ -372,4 +446,5 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/difyWorkflow", a.handleDifyWorkflow)
 	mux.HandleFunc("/difyWorkflowProxy", a.handleDifyWorkflowProxy)
 	mux.HandleFunc("/difyChatProxy", a.handleDifyChatProxy)
+	mux.HandleFunc("/difyGetConversations", a.handleDifyGetConversations)
 }
