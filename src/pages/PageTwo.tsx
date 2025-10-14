@@ -28,7 +28,9 @@ function PageTwo() {
       try {
         const url = `/api/plugins/${pluginId}/resources/difyGetConversations`;
         const res = await fetch(url);
-        if (!res.ok) throw new Error('Failed to fetch conversations');
+        if (!res.ok) {
+          throw new Error('Failed to fetch conversations');
+        }
         const data = await res.json();
         setConversations(Array.isArray(data.data) ? data.data : []);
       } catch (e) {
