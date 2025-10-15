@@ -289,7 +289,7 @@ func (a *App) handleDifyChatProxy(w http.ResponseWriter, req *http.Request) {
 				http.Error(w, "query field cannot be empty", http.StatusBadRequest)
 				return
 			}
-			chat_message_endpoint := apiUrl + "/chat-messages"
+			chat_message_endpoint := apiUrl + "/v1/chat-messages"
 
 			username := "grafana-user"
 			conversation_id := ""
