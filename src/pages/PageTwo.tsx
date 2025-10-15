@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { testIds } from '../components/testIds';
-import { PluginPage } from '@grafana/runtime';
-import { Button, Input } from '@grafana/ui';
+import { PluginPage, getBackendSrv, getDataSourceSrv } from '@grafana/runtime';
+import { Button, Input, Combobox, useStyles2 } from '@grafana/ui';
+import { GrafanaTheme2 } from '@grafana/data';
+import { css } from '@emotion/css';
 
 const pluginId = 'cloudorg-difychatflow-app'; // from plugin.json
 
 
-
 function PageTwo() {
+  const s = useStyles2(getStyles);
   const [messages, setMessages] = useState([
     { role: 'system', content: 'Welcome! Ask me anything.' }
   ]);
@@ -17,22 +18,29 @@ function PageTwo() {
   const [conversations, setConversations] = useState<any[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dataSources, setDataSources] = useState<any[]>([]);
+  const [selectedDataSource, setSelectedDataSource] = useState<any>(null);
 
-  // Fetch conversations on mount
+  // Fetch conversations and data sources on mount
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.focus();
     }
+    // Fetch conversations
     const fetchConversations = async () => {
       setLoadingConversations(true);
       try {
         const url = `/api/plugins/${pluginId}/resources/difyGetConversations`;
-        const res = await fetch(url);
-        if (!res.ok) {
-          throw new Error('Failed to fetch conversations');
+        const res = await getBackendSrv().fetch({
+          url,
+          method: 'GET',
+        }).toPromise();
+        const data = res && typeof res === 'object' && 'data' in res ? (res as any).data : undefined;
+        if (data && typeof data === 'object' && 'data' in data && Array.isArray((data as any).data)) {
+          setConversations((data as any).data);
+        } else {
+          setConversations([]);
         }
-        const data = await res.json();
-        setConversations(Array.isArray(data.data) ? data.data : []);
       } catch (e) {
         setConversations([]);
       } finally {
@@ -40,6 +48,13 @@ function PageTwo() {
       }
     };
     fetchConversations();
+
+    // Fetch data sources
+    const info = getDataSourceSrv().getList();
+    setDataSources(info);
+    if (info.length > 0) {
+      setSelectedDataSource(info[0]);
+    }
   }, []);
 
   // Parse text/event-stream chunks and stream only the 'answer' field from 'message' events
@@ -69,45 +84,47 @@ function PageTwo() {
     setMessages(prev => [...prev, { role: 'user', content: userInput }]);
     const url = `/api/plugins/${pluginId}/resources/difyChatProxy`;
     try {
-      const response = await fetch(url, {
+      // Use getBackendSrv().fetch() to make the request (returns Observable<FetchResponse>)
+      const observable = getBackendSrv().fetch({
+        url,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
         },
-        body: JSON.stringify({ query: userInput }),
+        data: { query: userInput },
+        responseType: 'text', // fallback to text, since 'stream' is not supported
       });
-      if (!response.body) {
+      // Use lastValueFrom to get the FetchResponse
+      const res = await (await import('rxjs')).lastValueFrom(observable);
+      if (!res || typeof res.data !== 'string') {
         setStreamedResponse('No response body');
         setIsLoading(false);
         return;
       }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
+      // Simulate streaming by parsing the full text as a single chunk
       let resultText = '';
-      let buffer = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-        const chunk = decoder.decode(value, { stream: true });
-        buffer += chunk;
-        // Try to parse complete events in buffer
-        parseEventStreamChunk(buffer, (answer) => {
-          resultText += answer;
-          setStreamedResponse(resultText);
-        });
-        // Remove processed events from buffer (keep only last incomplete event if any)
-        const lastDoubleNewline = buffer.lastIndexOf('\n\n');
-        if (lastDoubleNewline !== -1) {
-          buffer = buffer.slice(lastDoubleNewline + 2);
-        }
-      }
+      let buffer = res.data;
+      parseEventStreamChunk(buffer, (answer) => {
+        resultText += answer;
+        setStreamedResponse(resultText);
+      });
       setMessages(prev => [...prev, { role: 'assistant', content: resultText }]);
     } catch (err) {
-      setStreamedResponse('Error: ' + (err instanceof Error ? err.message : String(err)));
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error: ' + (err instanceof Error ? err.message : String(err)) }]);
+      let errorMsg = 'Unknown error';
+      if (err instanceof Error) {
+        errorMsg = err.message;
+      } else if (typeof err === 'object' && err !== null) {
+        try {
+          errorMsg = JSON.stringify(err);
+        } catch {
+          errorMsg = String(err);
+        }
+      } else {
+        errorMsg = String(err);
+      }
+      setStreamedResponse('Error: ' + errorMsg);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Error: ' + errorMsg }]);
     } finally {
       setIsLoading(false);
     }
@@ -129,28 +146,16 @@ function PageTwo() {
 
   return (
     <PluginPage>
-      <div
-        data-testid={testIds.pageTwo.container}
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          maxWidth: 1000,
-          margin: '0 auto',
-          padding: '32px 0',
-          gap: 32,
-        }}
-      >
-        {/* Conversation List */}
-        <div style={{ width: 260, minWidth: 200 }}>
+      <div className={s.page} >
+        <div className={s.sidebar}>
           <h3 style={{ color: 'var(--text-color, #f5f6fa)', fontWeight: 600, fontSize: 18, marginBottom: 16 }}>Conversations</h3>
           <div style={{
             border: '1px solid var(--panel-border-color, #23262e)',
             borderRadius: 8,
             background: 'var(--panel-bg, #1a1c23)',
-            minHeight: 320,
-            maxHeight: 420,
             overflowY: 'auto',
             padding: 0,
+            height: "100%"
           }}>
             {loadingConversations ? (
               <div style={{ color: '#888', padding: 16 }}>Loading...</div>
@@ -175,8 +180,28 @@ function PageTwo() {
             )}
           </div>
         </div>
-        {/* Chat Area */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className={s.content}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ width: 320 }}>
+                <Combobox
+                  options={dataSources.map(ds => ({ label: ds.name, value: ds.uid }))}
+                  value={selectedDataSource ? { label: selectedDataSource.name, value: selectedDataSource.uid } : undefined}
+                  onChange={option => {
+                    const found = dataSources.find(ds => ds.uid === option?.value);
+                    setSelectedDataSource(found || null);
+                  }}
+                  placeholder="Select data source..."
+                />
+              </div>
+              <div style={{ flex: 1 }} />
+            </div>
+        </div>
+        <div
+          className={s.sidebar}
+          style={{
+            minWidth: 400
+          }}
+        >
           <h2 style={{
             color: 'var(--text-color, #f5f6fa)',
             fontWeight: 600,
@@ -193,7 +218,7 @@ function PageTwo() {
               background: 'var(--panel-bg, #1a1c23)',
               marginBottom: 20,
               overflowY: 'auto',
-              maxHeight: 420,
+              height: "100%",
               boxShadow: '0 1px 4px 0 rgba(0,0,0,0.08)',
             }}
           >
@@ -277,8 +302,40 @@ function PageTwo() {
           </div>
         </div>
       </div>
+
     </PluginPage>
   );
 }
 
 export default PageTwo;
+
+const getStyles = (theme: GrafanaTheme2) => ({
+  page: css`
+    display: flex;
+    gap: ${theme.spacing(4)};
+    min-height: 400px;
+    align-items: stretch;
+    height: 100%;
+  `,
+  sidebar: css`
+    width: 220px;
+    min-width: 200px;
+    background: ${theme.colors.background.primary};
+    border-radius: 4px;
+    padding: ${theme.spacing(1)};
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  `,
+  content: css`
+    flex: 1;
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  `,
+  link: css`
+    color: ${theme.colors.text.link};
+    text-decoration: underline;
+  `,
+});
