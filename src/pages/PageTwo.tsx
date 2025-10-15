@@ -20,6 +20,11 @@ function PageTwo() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dataSources, setDataSources] = useState<any[]>([]);
   const [selectedDataSource, setSelectedDataSource] = useState<any>(null);
+  // State for current conversation id
+  const [currentConversationId, setCurrentConversationId] = useState<string>("");
+  // State for message history (overrides messages when a conversation is selected)
+  const [historyMessages, setHistoryMessages] = useState<any[] | null>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
 
   // Fetch conversations and data sources on mount
   useEffect(() => {
@@ -78,10 +83,46 @@ function PageTwo() {
     }
   };
 
-  const sendMessage = async (userInput: string) => {
+  // Fetch message history for a conversation
+  const fetchMessageHistory = async (conversationId: string) => {
+    setIsLoading(true);
+    setStreamedResponse("");
+    try {
+      const url = `/api/plugins/${pluginId}/resources/difyMessageHistoryProxy?conversation_id=${conversationId}`;
+      const observable = getBackendSrv().fetch({
+        url,
+        method: 'GET',
+      });
+      const res = await (await import('rxjs')).lastValueFrom(observable);
+      if (!res || !res.data || !Array.isArray(res.data.data)) {
+        setHistoryMessages([]);
+        setIsLoading(false);
+        return;
+      }
+      // Transform API response to chat message format
+      const chatMsgs = res.data.data.flatMap((msg: any) => [
+        { role: 'user', content: msg.query },
+        { role: 'system', content: msg.answer }
+      ]);
+      setHistoryMessages(chatMsgs);
+    } catch (err) {
+      setHistoryMessages([{ role: 'system', content: 'Failed to load message history.' }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const sendMessage = async (userInput: string, conversationId: string) => {
     setIsLoading(true);
     setStreamedResponse('');
-    setMessages(prev => [...prev, { role: 'user', content: userInput }]);
+    // If history is showing, start a new message list from history
+    setMessages(prev => {
+      if (historyMessages && historyMessages.length > 0) {
+        return [...historyMessages, { role: 'user', content: userInput }];
+      }
+      return [...prev, { role: 'user', content: userInput }];
+    });
+    setHistoryMessages(null); // Switch to live messages after sending
     const url = `/api/plugins/${pluginId}/resources/difyChatProxy`;
     try {
       // Use getBackendSrv().fetch() to make the request (returns Observable<FetchResponse>)
@@ -92,7 +133,7 @@ function PageTwo() {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
         },
-        data: { query: userInput },
+        data: { query: userInput, conversation_id: conversationId},
         responseType: 'text', // fallback to text, since 'stream' is not supported
       });
       // Use lastValueFrom to get the FetchResponse
@@ -134,7 +175,7 @@ function PageTwo() {
     if (!input.trim() || isLoading) {
       return;
     }
-    await sendMessage(input.trim());
+    await sendMessage(input.trim(), currentConversationId);
     setInput('');
   };
 
@@ -144,9 +185,16 @@ function PageTwo() {
     }
   };
 
+  // Auto-scroll to bottom when messages update
+  useEffect(() => {
+    if (messageListRef.current) {
+      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+    }
+  }, [messages, historyMessages, streamedResponse]);
+
   return (
     <PluginPage>
-      <div className={s.page} >
+      <div className={s.page} style={{ height: '80vh' }}>
         <div className={s.sidebar}>
           <h3 style={{ color: 'var(--text-color, #f5f6fa)', fontWeight: 600, fontSize: 18, marginBottom: 16 }}>Conversations</h3>
           <div style={{
@@ -164,14 +212,22 @@ function PageTwo() {
             ) : (
               <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                 {conversations.map((conv) => (
-                  <li key={conv.id} style={{
-                    borderBottom: '1px solid var(--panel-border-color, #23262e)',
-                    padding: '12px 16px',
-                    cursor: 'pointer',
-                    color: 'var(--text-color, #f5f6fa)',
-                    fontWeight: 500,
-                    fontSize: 15,
-                  }}
+                  <li
+                    key={conv.id}
+                    style={{
+                      borderBottom: '1px solid var(--panel-border-color, #23262e)',
+                      padding: '12px 16px',
+                      cursor: 'pointer',
+                      color: currentConversationId === conv.id ? '#fff' : 'var(--text-color, #f5f6fa)',
+                      fontWeight: currentConversationId === conv.id ? 700 : 500,
+                      fontSize: 15,
+                      background: currentConversationId === conv.id ? 'var(--blue-3, #204080)' : undefined,
+                      transition: 'background 0.2s',
+                    }}
+                    onClick={() => {
+                      setCurrentConversationId(conv.id);
+                      fetchMessageHistory(conv.id);
+                    }}
                   >
                     {conv.name || conv.id}
                   </li>
@@ -216,64 +272,66 @@ function PageTwo() {
               padding: 20,
               minHeight: 320,
               background: 'var(--panel-bg, #1a1c23)',
-              marginBottom: 20,
-              overflowY: 'auto',
-              height: "100%",
               boxShadow: '0 1px 4px 0 rgba(0,0,0,0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              flex: 1,
             }}
           >
-            {messages.map((msg, idx) => (
-              <div
-                key={idx}
-                style={{
-                  marginBottom: 16,
-                  display: 'flex',
-                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                }}
-              >
-                <span
+            <div ref={messageListRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+              {(historyMessages || messages).map((msg, idx) => (
+                <div
+                  key={idx}
                   style={{
-                    display: 'inline-block',
-                    background:
-                      msg.role === 'user'
-                        ? 'var(--input-bg, #23262e)'
-                        : 'var(--panel-bg, #23262e)',
-                    color: 'var(--text-color, #f5f6fa)',
-                    border: msg.role === 'system' ? 'none' : '1px solid var(--panel-border-color, #343741)',
-                    borderRadius: 6,
-                    padding: '10px 16px',
-                    maxWidth: '80%',
-                    wordBreak: 'break-word',
-                    fontSize: 15,
-                    opacity: msg.role === 'system' ? 0.85 : 1,
-                    fontStyle: msg.role === 'system' ? 'italic' : 'normal',
-                    boxShadow: msg.role === 'user' ? '0 1px 2px 0 rgba(0,0,0,0.10)' : undefined,
+                    marginBottom: 16,
+                    display: 'flex',
+                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
                   }}
                 >
-                  {msg.content}
-                </span>
-              </div>
-            ))}
-            {isLoading && (
-              <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    background: 'var(--panel-bg, #23262e)',
-                    color: 'var(--text-color, #f5f6fa)',
-                    border: '1px solid var(--panel-border-color, #343741)',
-                    borderRadius: 6,
-                    padding: '10px 16px',
-                    maxWidth: '80%',
-                    wordBreak: 'break-word',
-                    fontSize: 15,
-                  }}
-                >
-                  {streamedResponse || '...'}
-                </span>
-              </div>
-            )}
-          </div>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      background:
+                        msg.role === 'user'
+                          ? 'var(--input-bg, #23262e)'
+                          : 'var(--panel-bg, #23262e)',
+                      color: 'var(--text-color, #f5f6fa)',
+                      border: msg.role === 'system' ? 'none' : '1px solid var(--panel-border-color, #343741)',
+                      borderRadius: 6,
+                      padding: '10px 16px',
+                      maxWidth: '80%',
+                      wordBreak: 'break-word',
+                      fontSize: 15,
+                      opacity: msg.role === 'system' ? 0.85 : 1,
+                      fontStyle: msg.role === 'system' ? 'italic' : 'normal',
+                      boxShadow: msg.role === 'user' ? '0 1px 2px 0 rgba(0,0,0,0.10)' : undefined,
+                    }}
+                  >
+                    {msg.content}
+                  </span>
+                </div>
+              ))}
+              {isLoading && (
+                <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      background: 'var(--panel-bg, #23262e)',
+                      color: 'var(--text-color, #f5f6fa)',
+                      border: '1px solid var(--panel-border-color, #343741)',
+                      borderRadius: 6,
+                      padding: '10px 16px',
+                      maxWidth: '80%',
+                      wordBreak: 'break-word',
+                      fontSize: 15,
+                    }}
+                  >
+                    {streamedResponse || '...'}
+                  </span>
+                </div>
+              )}
+            </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <Input
               ref={inputRef}
@@ -303,7 +361,8 @@ function PageTwo() {
         </div>
       </div>
 
-    </PluginPage>
+  </div>
+  </PluginPage>
   );
 }
 

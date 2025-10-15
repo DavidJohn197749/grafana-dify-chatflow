@@ -1,14 +1,42 @@
 package plugin
 
 import (
-	"io"
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
+
+// ConfigError is a simple error type for config issues
+type ConfigError struct {
+	msg string
+}
+
+func (e *ConfigError) Error() string { return e.msg }
+
+// getPluginConfig extracts apiUrl and apiKey from plugin config, with error handling
+func getPluginConfig(req *http.Request) (string, string, error) {
+	pluginConfig := backend.PluginConfigFromContext(req.Context())
+	jsonData := pluginConfig.AppInstanceSettings.JSONData
+	secureJsonData := pluginConfig.AppInstanceSettings.DecryptedSecureJSONData
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(jsonData, &config); err != nil {
+		return "", "", err
+	}
+	apiUrl, ok := config["apiUrl"].(string)
+	if !ok {
+		return "", "", &ConfigError{"apiUrl not found or not a string"}
+	}
+	apiKey, ok := secureJsonData["apiKey"]
+	if !ok {
+		return "", "", &ConfigError{"API key is not set"}
+	}
+	return apiUrl, apiKey, nil
+}
 
 // handlePing is an example HTTP GET resource that returns a {"message": "ok"} JSON response.
 func (a *App) handlePing(w http.ResponseWriter, req *http.Request) {
@@ -43,39 +71,23 @@ func (a *App) handleEcho(w http.ResponseWriter, req *http.Request) {
 }
 
 func (a *App) handleDifyWorkflow(w http.ResponseWriter, req *http.Request) {
-	pluginConfig := backend.PluginConfigFromContext(req.Context())
-	jsonData := pluginConfig.AppInstanceSettings.JSONData
-	secureJsonData := pluginConfig.AppInstanceSettings.DecryptedSecureJSONData
-	log.DefaultLogger.Debug("secureJsonData content", "data", secureJsonData)
-	log.DefaultLogger.Debug("jsonData content", "data", jsonData)
-	log.DefaultLogger.Debug("Goto SLS with STS success.")
-
-	var config map[string]interface{}
-	if err := json.Unmarshal(jsonData, &config); err != nil {
-		http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+	apiUrl, apiKey, err := getPluginConfig(req)
+	if err != nil {
+		if ce, ok := err.(*ConfigError); ok {
+			http.Error(w, ce.msg, http.StatusBadRequest)
+		} else {
+			http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+		}
 		return
 	}
-	apiUrl, ok := config["apiUrl"].(string)
-	if !ok {
-		http.Error(w, "apiUrl not found or not a string", http.StatusBadRequest)
-		return
+	response := map[string]string{
+		"apiKey": apiKey,
+		"apiUrl": apiUrl,
 	}
-
-	apiKey, ok := secureJsonData["apiKey"]
-	if !ok {
-		http.Error(w, "API key is not set", http.StatusBadRequest)
+	w.Header().Add("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	} else {
-
-		response := map[string]string{
-			"apiKey": apiKey,
-			"apiUrl": apiUrl,
-		}
-		w.Header().Add("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 	}
 	w.WriteHeader(http.StatusOK)
 }
@@ -144,29 +156,13 @@ func (a *App) handleDifyWorkflowProxy(w http.ResponseWriter, req *http.Request) 
 		"content_length", req.ContentLength,
 		"has_body", req.Body != nil)
 
-	// Get plugin configuration
-	pluginConfig := backend.PluginConfigFromContext(req.Context())
-	jsonData := pluginConfig.AppInstanceSettings.JSONData
-	secureJsonData := pluginConfig.AppInstanceSettings.DecryptedSecureJSONData
-
-	// Parse configuration
-	var config map[string]interface{}
-	if err := json.Unmarshal(jsonData, &config); err != nil {
-		http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
-		return
-	}
-
-	// Get API URL from configuration
-	apiUrl, ok := config["apiUrl"].(string)
-	if !ok {
-		http.Error(w, "apiUrl not found or not a string", http.StatusBadRequest)
-		return
-	}
-
-	// Get API key from secure configuration
-	apiKey, ok := secureJsonData["apiKey"]
-	if !ok {
-		http.Error(w, "API key is not set", http.StatusBadRequest)
+	apiUrl, apiKey, err := getPluginConfig(req)
+	if err != nil {
+		if ce, ok := err.(*ConfigError); ok {
+			http.Error(w, ce.msg, http.StatusBadRequest)
+		} else {
+			http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -236,29 +232,13 @@ func (a *App) handleDifyWorkflowProxy(w http.ResponseWriter, req *http.Request) 
 }
 
 func (a *App) handleDifyChatProxy(w http.ResponseWriter, req *http.Request) {
-	// Get plugin configuration
-	pluginConfig := backend.PluginConfigFromContext(req.Context())
-	jsonData := pluginConfig.AppInstanceSettings.JSONData
-	secureJsonData := pluginConfig.AppInstanceSettings.DecryptedSecureJSONData
-
-	// Parse configuration
-	var config map[string]interface{}
-	if err := json.Unmarshal(jsonData, &config); err != nil {
-		http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
-		return
-	}
-
-	// Get API URL from configuration
-	apiUrl, ok := config["apiUrl"].(string)
-	if !ok {
-		http.Error(w, "apiUrl not found or not a string", http.StatusBadRequest)
-		return
-	}
-
-	// Get API key from secure configuration
-	apiKey, ok := secureJsonData["apiKey"]
-	if !ok {
-		http.Error(w, "API key is not set", http.StatusBadRequest)
+	apiUrl, apiKey, err := getPluginConfig(req)
+	if err != nil {
+		if ce, ok := err.(*ConfigError); ok {
+			http.Error(w, ce.msg, http.StatusBadRequest)
+		} else {
+			http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -280,7 +260,11 @@ func (a *App) handleDifyChatProxy(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
+		if requestBody["conversation_id"] == nil {
+			requestBody["conversation_id"] = ""
+		}
+
 		if requestBody["query"] == nil {
 			http.Error(w, "query field is required in the request body", http.StatusBadRequest)
 			return
@@ -292,15 +276,15 @@ func (a *App) handleDifyChatProxy(w http.ResponseWriter, req *http.Request) {
 			chat_message_endpoint := apiUrl + "/v1/chat-messages"
 
 			username := "grafana-user"
-			conversation_id := ""
+			conversation_id := requestBody["conversation_id"].(string)
 
 			payload := map[string]interface{}{
-				"inputs": map[string]interface{}{},
-				"query": requestBody["query"].(string),
-				"response_mode": "streaming",
+				"inputs":          map[string]interface{}{},
+				"query":           requestBody["query"].(string),
+				"response_mode":   "streaming",
 				"conversation_id": conversation_id,
-				"user": username,
-				"files": []map[string]interface{}{},
+				"user":            username,
+				"files":           []map[string]interface{}{},
 			}
 
 			bodyBytes, _ := json.Marshal(payload)
@@ -372,26 +356,13 @@ func (a *App) handleDifyGetConversations(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// Get plugin configuration
-	pluginConfig := backend.PluginConfigFromContext(req.Context())
-	jsonData := pluginConfig.AppInstanceSettings.JSONData
-	secureJsonData := pluginConfig.AppInstanceSettings.DecryptedSecureJSONData
-
-	// Parse configuration
-	var config map[string]interface{}
-	if err := json.Unmarshal(jsonData, &config); err != nil {
-		http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
-		return
-	}
-
-	apiUrl, ok := config["apiUrl"].(string)
-	if !ok {
-		http.Error(w, "apiUrl not found or not a string", http.StatusBadRequest)
-		return
-	}
-	apiKey, ok := secureJsonData["apiKey"]
-	if !ok {
-		http.Error(w, "API key is not set", http.StatusBadRequest)
+	apiUrl, apiKey, err := getPluginConfig(req)
+	if err != nil {
+		if ce, ok := err.(*ConfigError); ok {
+			http.Error(w, ce.msg, http.StatusBadRequest)
+		} else {
+			http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -439,6 +410,59 @@ func (a *App) handleDifyGetConversations(w http.ResponseWriter, req *http.Reques
 	io.Copy(w, resp.Body)
 }
 
+func (a *App) handleDifyMessageHistoryProxy(w http.ResponseWriter, req *http.Request) {
+	apiUrl, apiKey, err := getPluginConfig(req)
+	if err != nil {
+		if ce, ok := err.(*ConfigError); ok {
+			http.Error(w, ce.msg, http.StatusBadRequest)
+		} else {
+			http.Error(w, "Invalid JSONData", http.StatusInternalServerError)
+		}
+		return
+	}
+	difyURL := apiUrl + "/v1/messages"
+	q := req.URL.Query()
+	q.Set("user", "grafana-user") // hard code user
+	// Only allow/forward specific query params
+	params := []string{"user", "first_id", "limit", "conversation_id"}
+	outQ := make([]string, 0, len(params))
+	for _, p := range params {
+		if v := q.Get(p); v != "" {
+			outQ = append(outQ, p+"="+v)
+		}
+	}
+	if len(outQ) > 0 {
+		difyURL += "?" + q.Encode()
+	}
+
+	// Create request to Dify
+	proxyReq, err := http.NewRequest("GET", difyURL, nil)
+	if err != nil {
+		http.Error(w, "Failed to create request to Dify", http.StatusInternalServerError)
+		return
+	}
+	proxyReq.Header.Set("Authorization", "Bearer "+apiKey)
+	proxyReq.Header.Set("Accept", "application/json")
+
+	// Make the request
+	client := &http.Client{}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		http.Error(w, "Failed to call Dify API: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers and body
+	for k, v := range resp.Header {
+		for _, vv := range v {
+			w.Header().Add(k, vv)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
 // registerRoutes takes a *http.ServeMux and registers some HTTP handlers.
 func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ping", a.handlePing)
@@ -447,4 +471,5 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/difyWorkflowProxy", a.handleDifyWorkflowProxy)
 	mux.HandleFunc("/difyChatProxy", a.handleDifyChatProxy)
 	mux.HandleFunc("/difyGetConversations", a.handleDifyGetConversations)
+	mux.HandleFunc("/difyMessageHistoryProxy", a.handleDifyMessageHistoryProxy)
 }
