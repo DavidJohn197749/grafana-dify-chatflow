@@ -94,13 +94,13 @@ function PageTwo() {
         method: 'GET',
       });
       const res = await (await import('rxjs')).lastValueFrom(observable);
-      if (!res || !res.data || !Array.isArray(res.data.data)) {
+      if (!res || !res.data || !Array.isArray((res as any).data.data)) {
         setHistoryMessages([]);
         setIsLoading(false);
         return;
       }
       // Transform API response to chat message format
-      const chatMsgs = res.data.data.flatMap((msg: any) => [
+      const chatMsgs = (res as any).data.data.flatMap((msg: any) => [
         { role: 'user', content: msg.query },
         { role: 'system', content: msg.answer }
       ]);

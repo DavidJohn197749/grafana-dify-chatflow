@@ -10,6 +10,7 @@
     "lint": "eslint --cache --ignore-path ./.gitignore --ext .js,.jsx,.ts,.tsx .",
     "lint:fix": "npm run lint -- --fix && prettier --write --list-different .",
     "e2e": "playwright test",
+    "e2e-ui": "playwright test --ui",
     "server": "docker compose up --build",
     "server-windows": "docker compose -f docker-compose.windows.yaml up --build",
     "sign": "npx --yes @grafana/sign-plugin@latest"
@@ -70,8 +71,9 @@
     "@grafana/data": "^12.1.0",
     "@grafana/i18n": "^12.1.0",
     "@grafana/runtime": "^12.1.0",
-    "@grafana/ui": "^12.1.0",
+    "@grafana/scenes": "^6.39.8",
     "@grafana/schema": "^12.1.0",
+    "@grafana/ui": "^12.1.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-router-dom": "^6.22.0",
