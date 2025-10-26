@@ -57,6 +57,13 @@
     },
     {
       "type": "page",
+      "name": "Page Six",
+      "path": "/a/%PLUGIN_ID%/six",
+      "addToNav": true,
+      "defaultNav": false
+    },
+    {
+      "type": "page",
       "icon": "cog",
       "name": "Configuration",
       "path": "/plugins/%PLUGIN_ID%",
