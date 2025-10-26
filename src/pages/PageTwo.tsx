@@ -3,6 +3,8 @@ import { PluginPage, getBackendSrv, getDataSourceSrv } from '@grafana/runtime';
 import { Button, Input, Combobox, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
+import HelloWorldPluginPage from './PageSix';
+
 
 const pluginId = 'cloudorg-difychatflow-app'; // from plugin.json
 
@@ -250,6 +252,10 @@ function PageTwo() {
                 />
               </div>
               <div style={{ flex: 1 }} />
+            </div>
+            <div>
+              Hello Scene
+              <HelloWorldPluginPage />
             </div>
         </div>
         <div
