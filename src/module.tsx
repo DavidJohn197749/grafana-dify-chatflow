@@ -4,6 +4,13 @@ import { LoadingPlaceholder } from '@grafana/ui';
 import type { AppConfigProps } from './components/AppConfig/AppConfig';
 import { initPluginTranslations } from '@grafana/i18n';
 import pluginJson from 'plugin.json';
+import {
+  RecoilRoot,
+  atom,
+  selector,
+  useRecoilState,
+  useRecoilValue,
+} from 'recoil';
 
 const LazyApp = lazy(() => import('./components/App/App'));
 const LazyAppConfig = lazy(() => import('./components/AppConfig/AppConfig'));
@@ -12,7 +19,9 @@ await initPluginTranslations(pluginJson.id);
 
 const App = (props: AppRootProps) => (
   <Suspense fallback={<LoadingPlaceholder text="" />}>
+    <RecoilRoot>
     <LazyApp {...props} />
+    </RecoilRoot>
   </Suspense>
 );
 

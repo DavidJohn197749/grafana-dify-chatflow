@@ -29,7 +29,7 @@
     },
     {
       "type": "page",
-      "name": "Page Two",
+      "name": "Log analysis",
       "path": "/a/%PLUGIN_ID%/two",
       "addToNav": true,
       "defaultNav": false

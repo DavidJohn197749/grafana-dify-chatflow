@@ -4,7 +4,8 @@ import { Button, Input, Combobox, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import HelloWorldPluginPage from './PageSix';
-
+import { useRecoilValue } from 'recoil';
+import { logMessageState } from './PageSix';
 
 const pluginId = 'cloudorg-difychatflow-app'; // from plugin.json
 
@@ -27,6 +28,8 @@ function PageTwo() {
   // State for message history (overrides messages when a conversation is selected)
   const [historyMessages, setHistoryMessages] = useState<any[] | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
+
+  const logs = useRecoilValue(logMessageState);
 
   // Fetch conversations and data sources on mount
   useEffect(() => {
@@ -187,6 +190,15 @@ function PageTwo() {
     }
   };
 
+  useEffect(() => {
+    if (input.trim() === '' && logs.length > 0) {
+      const latest = logs[logs.length - 1];
+      if (latest && latest.message) {
+        setInput(latest.message);
+      }
+    }
+  }, [logs, input]);
+
   // Auto-scroll to bottom when messages update
   useEffect(() => {
     if (messageListRef.current) {
@@ -239,24 +251,7 @@ function PageTwo() {
           </div>
         </div>
         <div className={s.content}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ width: 320 }}>
-                <Combobox
-                  options={dataSources.map(ds => ({ label: ds.name, value: ds.uid }))}
-                  value={selectedDataSource ? { label: selectedDataSource.name, value: selectedDataSource.uid } : undefined}
-                  onChange={option => {
-                    const found = dataSources.find(ds => ds.uid === option?.value);
-                    setSelectedDataSource(found || null);
-                  }}
-                  placeholder="Select data source..."
-                />
-              </div>
-              <div style={{ flex: 1 }} />
-            </div>
-            <div>
-              Hello Scene
-              <HelloWorldPluginPage />
-            </div>
+            <HelloWorldPluginPage />
         </div>
         <div
           className={s.sidebar}
@@ -398,6 +393,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     min-height: 0;
+    height: 100%;
   `,
   link: css`
     color: ${theme.colors.text.link};
